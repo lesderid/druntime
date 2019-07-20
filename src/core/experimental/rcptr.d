@@ -1,8 +1,30 @@
+// Written in the D programming language.
+/**
+This module provides a shared pointer implementation with memory management
+through reference counting.
+
+License: $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
+
+Authors: Les De Ridder
+
+Source: $(DRUNTIMESRC core/experimental/rcptr.d)
+*/
 module core.experimental.rcptr;
 
 import core.memory : pureCalloc, pureFree;
 import core.atomic : atomicOp;
 
+/**
+A reference counted shared pointer that can be used to implement reference
+counted data structures.
+
+The reference count is automatically incremented/decremented on assignment,
+copy (construction), and destruction. When there are no more references to the
+pointer, the reference count is automatically deallocated and the referenced
+pointer is `free`d.
+
+Implementation: The internal implementation of `__rcptr` uses `malloc`/`free`.
+*/
 struct __rcptr(T)
 {
     alias CounterType = uint;
@@ -10,6 +32,15 @@ struct __rcptr(T)
     private T* ptr = null;
     private shared(CounterType)* count = null;
 
+    /**
+    Creates a new `__rcptr` instance, tracking the provided pointer.
+
+    This implies that the ownership of the pointer is transferred to
+    `__rcptr`.
+
+    Params:
+         ptr = pointer to memory to be managed by `__rcptr`
+    */
     this(T* ptr)
     {
         //TODO: Don't allocate count if ptr is null? assert(ptr !is null)?
@@ -69,6 +100,8 @@ struct __rcptr(T)
             return;
         }
 
+        // The counter is left at -1 when this was the last reference
+        // (i.e. the counter is 0-based, because we use calloc)
         if (atomicOp!"-="(*count, 1) == -1)
         {
             deallocate();
