@@ -48,10 +48,11 @@ struct __rcptr(T)
         if (ptr !is null)
         {
             // We use `calloc` so we don't have to manually initialise count/addRef
-            count = cast(typeof(count)) pureCalloc(1, CounterType.sizeof);
+            () @trusted { count = cast(typeof(count)) pureCalloc(1, CounterType.sizeof); } ();
         }
     }
 
+    @trusted
     void deallocate()
     {
         pureFree(ptr);
@@ -111,6 +112,7 @@ struct __rcptr(T)
         }
     }
 
+    @system
     T* get()
     {
         return ptr;
@@ -146,7 +148,7 @@ unittest
 {
     struct rcarray
     {
-        @nogc nothrow:
+        @safe @nogc nothrow:
 
         private __rcptr!int ptr;
 
@@ -157,7 +159,7 @@ unittest
             import core.stdc.stdlib : calloc;
 
             this.size = size;
-            this.ptr = __rcptr!int(cast(int*) calloc(size, int.sizeof));
+            this.ptr = __rcptr!int(() @trusted { return cast(int*) pureCalloc(size, int.sizeof); }());
         }
 
         void opAssign(ref rcarray rhs)
