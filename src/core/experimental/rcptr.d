@@ -43,10 +43,13 @@ struct __rcptr(T)
     */
     this(T* ptr)
     {
-        //TODO: Don't allocate count if ptr is null? assert(ptr !is null)?
         this.ptr = ptr;
 
-        count = cast(typeof(count)) pureCalloc(1, CounterType.sizeof);
+        if (ptr !is null)
+        {
+            // We use `calloc` so we don't have to manually initialise count/addRef
+            count = cast(typeof(count)) pureCalloc(1, CounterType.sizeof);
+        }
     }
 
     void deallocate()
