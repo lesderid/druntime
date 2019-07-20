@@ -140,3 +140,56 @@ unittest
     assert(a.count is null);
     assert(*b.count == 0);
 }
+
+
+unittest
+{
+    struct rcarray
+    {
+        @nogc nothrow:
+
+        private __rcptr!int ptr;
+
+        private size_t size;
+
+        this(size_t size)
+        {
+            import core.stdc.stdlib : calloc;
+
+            this.size = size;
+            this.ptr = __rcptr!int(cast(int*) calloc(size, int.sizeof));
+        }
+
+        void opAssign(ref rcarray rhs)
+        {
+            // This will update the reference count
+            ptr = rhs.ptr;
+            // Update the size
+            size = rhs.size;
+        }
+
+        /* Implement copy constructors */
+        this(return scope ref typeof(this) rhs)
+        {
+            // This will update the reference count
+            ptr = rhs.ptr;
+            // Update the size
+            size = rhs.size;
+        }
+    }
+
+    auto a = rcarray(42);
+    assert(*a.ptr.count == 0);
+    {
+        auto a2 = a; // Construct a2 by copy construction
+        assert(*a.ptr.count == 1);
+        auto a3 = rcarray(4242);
+        a2 = a3; // Assign a3 into a2; a's ref count drops
+        assert(*a.ptr.count == 0);
+        a3 = a; // Assign a into a3; a's ref count increases
+        assert(*a.ptr.count == 1);
+        // a2 and a3 go out of scope here
+        // a2 is the last ref to rcarray(4242) -> gets freed
+    }
+    assert(*a.ptr.count == 0);
+}
