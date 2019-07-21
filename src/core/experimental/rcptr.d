@@ -11,8 +11,30 @@ Source: $(DRUNTIMESRC core/experimental/rcptr.d)
 */
 module core.experimental.rcptr;
 
-import core.memory : pureCalloc, pureFree;
-import core.atomic : atomicOp;
+///
+unittest
+{
+    import core.stdc.stdlib : calloc;
+    auto allocInts = (size_t count) => cast(int*) calloc(count, int.sizeof);
+
+    __rcptr!int a; //default ctor
+    assert(a.get is null);
+
+    auto b = __rcptr!int(allocInts(10)); //ptr ctor
+
+    {
+        auto c = a; //copy ctor
+        assert(c.get == a.get);
+        assert(c.get != b.get);
+
+        c = b; //opAssign
+        assert(c.get != a.get);
+        assert(c.get == b.get);
+    }
+
+    assert(a.count is null);
+    assert(*b.count == 0);
+}
 
 /**
 A reference counted shared pointer that can be used to implement reference
@@ -47,16 +69,23 @@ struct __rcptr(T)
 
         if (ptr !is null)
         {
+            import core.memory : pureCalloc;
+
             // We use `calloc` so we don't have to manually initialise count/addRef
             count = (() @trusted inout => cast(typeof(count)) pureCalloc(1, CounterType.sizeof))();
         }
     }
 
-    @trusted
-    void deallocate()
+    /**
+    Get the owned pointer.
+
+    Returns:
+        The pointer owned by this instance of `__rcptr`.
+    */
+    @system
+    inout(T*) get() inout
     {
-        pureFree(ptr);
-        pureFree(cast(CounterType*) count);
+        return ptr;
     }
 
     ~this()
@@ -64,7 +93,8 @@ struct __rcptr(T)
         delRef();
     }
 
-    void opAssign(__rcptr!T rhs)
+    ///
+    void opAssign(ref __rcptr!T rhs)
     {
         if (rhs.count == count)
         {
@@ -79,6 +109,7 @@ struct __rcptr(T)
         addRef();
     }
 
+    ///
     this(scope ref inout __rcptr!T rhs) inout
     {
         ptr = rhs.ptr;
@@ -87,8 +118,10 @@ struct __rcptr(T)
         addRef();
     }
 
-    private void addRef() const
+    private void addRef() inout
     {
+        import core.atomic : atomicOp;
+
         if (ptr is null)
         {
             return;
@@ -99,6 +132,8 @@ struct __rcptr(T)
 
     private void delRef()
     {
+        import core.atomic : atomicOp;
+
         if (ptr is null)
         {
             return;
@@ -112,37 +147,15 @@ struct __rcptr(T)
         }
     }
 
-    @system
-    inout(T*) get() inout
+    @trusted
+    private void deallocate()
     {
-        return ptr;
+        import core.memory : pureFree;
+
+        pureFree(ptr);
+        pureFree(cast(CounterType*) count);
     }
 }
-
-unittest
-{
-    import core.stdc.stdlib : calloc;
-
-    auto allocInts = (size_t count) => cast(int*) calloc(count, int.sizeof);
-
-    __rcptr!int a; //default ctor
-
-    auto b = __rcptr!int(allocInts(10)); //ptr ctor
-
-    {
-        auto c = a; //copy ctor
-        assert(c.get == a.get);
-        assert(c.get != b.get);
-
-        c = b; //opAssign
-        assert(c.get != a.get);
-        assert(c.get == b.get);
-    }
-
-    assert(a.count is null);
-    assert(*b.count == 0);
-}
-
 
 unittest
 {
@@ -151,15 +164,14 @@ unittest
         @safe @nogc nothrow:
 
         private __rcptr!int ptr;
-
         private size_t size;
 
         this(size_t size)
         {
             import core.stdc.stdlib : calloc;
 
+            this.ptr = __rcptr!int(() @trusted { return cast(int*) calloc(size, int.sizeof); }());
             this.size = size;
-            this.ptr = __rcptr!int(() @trusted { return cast(int*) pureCalloc(size, int.sizeof); }());
         }
 
         void opAssign(ref rcarray rhs)
@@ -170,8 +182,7 @@ unittest
             size = rhs.size;
         }
 
-        /* Implement copy constructors */
-        this(return scope ref typeof(this) rhs)
+        this(ref rcarray rhs)
         {
             // This will update the reference count
             ptr = rhs.ptr;
@@ -194,42 +205,4 @@ unittest
         // a2 is the last ref to rcarray(4242) -> gets freed
     }
     assert(*a.ptr.count == 0);
-}
-
-struct rcbuffer(T)
-{
-    private __rcptr!T ptr;
-    size_t size;
-
-    this(size_t size) inout
-    {
-        import core.memory : pureMalloc;
-
-        this.ptr = inout __rcptr!T((() @trusted inout => cast(inout(T*)) pureMalloc(size * T.sizeof))());
-        this.size = size;
-    }
-
-    this(inout __rcptr!T ptr, size_t size) inout
-    {
-        this.ptr = ptr;
-        this.size = size;
-    }
-
-    void opAssign(rcbuffer!T rhs)
-    {
-        ptr = rhs.ptr;
-        size = rhs.size;
-    }
-
-    this(scope inout ref rcbuffer!T rhs) inout
-    {
-        ptr = rhs.ptr;
-        size = rhs.size;
-    }
-
-    @system
-    inout(T[]) asSlice() inout
-    {
-        return ptr.get[0 .. size];
-    }
 }

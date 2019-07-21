@@ -95,6 +95,44 @@ unittest
     assert(is(typeof(ia) == immutable(rcarray!int)));
 }
 
+private struct rcbuffer(T)
+{
+    private __rcptr!T ptr;
+    size_t size;
+
+    this(size_t size) inout
+    {
+        import core.memory : pureMalloc;
+
+        this.ptr = inout __rcptr!T((() @trusted inout => cast(inout(T*)) pureMalloc(size * T.sizeof))());
+        this.size = size;
+    }
+
+    this(inout __rcptr!T ptr, size_t size) inout
+    {
+        this.ptr = ptr;
+        this.size = size;
+    }
+
+    void opAssign(rcbuffer!T rhs)
+    {
+        ptr = rhs.ptr;
+        size = rhs.size;
+    }
+
+    this(scope inout ref rcbuffer!T rhs) inout
+    {
+        ptr = rhs.ptr;
+        size = rhs.size;
+    }
+
+    @system
+    inout(T[]) asSlice() inout
+    {
+        return ptr.get[0 .. size];
+    }
+}
+
 /**
 Array type with deterministic control of memory, through reference counting,
 that mimics the behaviour of built-in dynamic arrays. Memory is automatically
