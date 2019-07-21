@@ -111,8 +111,7 @@ struct rcarray(T)
 
     private T[] payload;
 
-    private __rcptr!(Unqual!T) ptr;
-    private size_t originalCapacity;
+    private rcbuffer!(Unqual!T) support;
 
     // Factor to grow the array capacity by
     private enum growthFactor = 1.5;
@@ -183,8 +182,7 @@ struct rcarray(T)
         // the same underlying memory and increase the reference count (through
         // the copy constructor of `__RefCount`)
 
-        ptr = rhs.ptr;
-        originalCapacity = rhs.originalCapacity;
+        support = rhs.support;
         payload = rhs.payload;
     };
 
@@ -221,11 +219,10 @@ struct rcarray(T)
         mixin(copyCtorIncRef);
     }
 
-    private this(PtrQual, PaylQual, this Qualified)(PtrQual ptr, size_t originalCapacity, PaylQual payload)
-    if (is(typeof(this.ptr) : typeof(ptr)))
+    private this(BufQual, PaylQual, this Qualified)(BufQual support, PaylQual payload)
+    if (is(typeof(this.support) : typeof(support)))
     {
-        this.ptr = ptr;
-        this.originalCapacity = originalCapacity;
+        this.support = support;
         this.payload = payload;
     }
 
@@ -274,14 +271,14 @@ struct rcarray(T)
     private @nogc nothrow pure @trusted scope
     size_t slackFront() const
     {
-        return payload.ptr - ptr.get;
+        return payload.ptr - support.asSlice.ptr;
     }
 
     // Length of the unused capacity at the back of the support array
     private @nogc nothrow pure @trusted scope
     size_t slackBack() const
     {
-        return ptr.get + originalCapacity - payload.ptr - payload.length;
+        return support.asSlice.ptr + support.asSlice.length - payload.ptr - payload.length;
     }
 
     /**
@@ -327,7 +324,7 @@ struct rcarray(T)
         {
             reserve(len);
         }
-        payload = (() @trusted => cast(T[])((cast(T*) ptr.get)[slackFront .. slackFront + len]))();
+        payload = (() @trusted => cast(T[])(support.asSlice[slackFront .. slackFront + len]))();
     }
 
     ///
@@ -389,28 +386,28 @@ struct rcarray(T)
 
         if (n <= capacity) { return; }
 
-        Unqual!T[] tmpSupport = (() @trusted pure => (cast(Unqual!T*)(pureMalloc(n * T.sizeof)))[0 .. n])();
-        assert(tmpSupport !is null);
+        auto tmpSupport = rcbuffer!(Unqual!T)(n);
+        Unqual!T[] tmpSupportSlice = (() @trusted => cast(Unqual!T[]) tmpSupport.asSlice)();
+        assert(tmpSupportSlice !is null);
 
-        foreach (i; 0 .. tmpSupport.length)
+        foreach (i; 0 .. tmpSupportSlice.length)
         {
             import core.internal.lifetime : emplaceRef;
 
             if (i < payload.length)
             {
                 // Copy the existing items
-                emplaceRef(tmpSupport[i], payload[i]);
+                emplaceRef(tmpSupportSlice[i], payload[i]);
             }
             else
             {
                 // Default initialise the remaining memory
-                emplaceRef(tmpSupport[i]);
+                emplaceRef(tmpSupportSlice[i]);
             }
         }
 
-        ptr = __rcptr!(Unqual!T)(&tmpSupport[0]);
-        originalCapacity = n;
-        payload = (() @trusted => cast(T[])(tmpSupport[0 .. payload.length]))();
+        support = tmpSupport;
+        payload = (() @trusted => cast(T[]) (support.asSlice[0 .. payload.length]))();
 
         assert(capacity >= n);
     }
@@ -488,10 +485,10 @@ struct rcarray(T)
         //support[slackFront + length .. slackFront + length + stuff.length] = stuff[];
         for (size_t i = length, j = 0; i < length + stuff.length; ++i, ++j)
         {
-            () @trusted { (cast(Unqual!T*) ptr.get)[slackFront + i] = stuff[j]; } ();
+            (() @trusted => cast(Unqual!T[]) support.asSlice)()[slackFront + i] = stuff[j];
         }
 
-        payload = (() @trusted => cast(T[])(ptr.get[slackFront .. slackFront + payload.length + stuff.length]))();
+        payload = (() @trusted => cast(T[])(support.asSlice[slackFront .. slackFront + payload.length + stuff.length]))();
         return stuff.length;
     };
 
@@ -519,8 +516,7 @@ struct rcarray(T)
         } ~ "}"
         ~ q{
 
-        ptr = (() @trusted => typeof(ptr)(cast(Unqual!T*) tmpSupport.ptr) )();
-        originalCapacity = stuffLength;
+        support = immutable rcbuffer!(Unqual!T)((() @trusted => immutable __rcptr!(Unqual!T)(cast(immutable(Unqual!T*)) tmpSupport.ptr) )(), stuffLength);
         payload = (() @trusted => (cast(typeof(payload.ptr))(tmpSupport.ptr))[0 .. stuffLength])();
         };
     }
@@ -640,7 +636,7 @@ struct rcarray(T)
     */
     auto opSlice(this Qualified)(size_t start, size_t end)
     {
-        return typeof(this)(ptr, originalCapacity, payload[start .. end]);
+        return typeof(this)(support, payload[start .. end]);
     }
 
     ///
@@ -900,8 +896,7 @@ struct rcarray(T)
     auto ref opAssign()(auto ref typeof(this) rhs)
     {
         // This will update the reference count
-        ptr = rhs.ptr;
-        originalCapacity = rhs.originalCapacity;
+        support = rhs.support;
         payload = rhs.payload;
 
         return this;

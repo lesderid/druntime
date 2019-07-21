@@ -41,9 +41,9 @@ struct __rcptr(T)
     Params:
          ptr = pointer to memory to be managed by `__rcptr`
     */
-    this(T* ptr) inout
+    this(inout(T*) ptr) inout
     {
-        this.ptr = (() @trusted inout => cast(typeof(this.ptr)) ptr)();
+        this.ptr = ptr;
 
         if (ptr !is null)
         {
@@ -79,23 +79,7 @@ struct __rcptr(T)
         addRef();
     }
 
-    this(scope ref __rcptr!T rhs)
-    {
-        ptr = rhs.ptr;
-        count = rhs.count;
-
-        addRef();
-    }
-
-    this(scope ref inout __rcptr!T rhs) const
-    {
-        ptr = rhs.ptr;
-        count = rhs.count;
-
-        addRef();
-    }
-
-    this(scope ref immutable __rcptr!T rhs) immutable
+    this(scope ref inout __rcptr!T rhs) inout
     {
         ptr = rhs.ptr;
         count = rhs.count;
@@ -129,7 +113,7 @@ struct __rcptr(T)
     }
 
     @system
-    const(T*) get() const
+    inout(T*) get() inout
     {
         return ptr;
     }
@@ -210,4 +194,42 @@ unittest
         // a2 is the last ref to rcarray(4242) -> gets freed
     }
     assert(*a.ptr.count == 0);
+}
+
+struct rcbuffer(T)
+{
+    private __rcptr!T ptr;
+    size_t size;
+
+    this(size_t size) inout
+    {
+        import core.memory : pureMalloc;
+
+        this.ptr = inout __rcptr!T((() @trusted inout => cast(inout(T*)) pureMalloc(size * T.sizeof))());
+        this.size = size;
+    }
+
+    this(inout __rcptr!T ptr, size_t size) inout
+    {
+        this.ptr = ptr;
+        this.size = size;
+    }
+
+    void opAssign(rcbuffer!T rhs)
+    {
+        ptr = rhs.ptr;
+        size = rhs.size;
+    }
+
+    this(scope inout ref rcbuffer!T rhs) inout
+    {
+        ptr = rhs.ptr;
+        size = rhs.size;
+    }
+
+    @system
+    inout(T[]) asSlice() inout
+    {
+        return ptr.get[0 .. size];
+    }
 }
