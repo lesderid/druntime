@@ -41,14 +41,14 @@ struct __rcptr(T)
     Params:
          ptr = pointer to memory to be managed by `__rcptr`
     */
-    this(T* ptr)
+    this(T* ptr) inout
     {
-        this.ptr = ptr;
+        this.ptr = (() @trusted inout => cast(typeof(this.ptr)) ptr)();
 
         if (ptr !is null)
         {
             // We use `calloc` so we don't have to manually initialise count/addRef
-            () @trusted { count = cast(typeof(count)) pureCalloc(1, CounterType.sizeof); } ();
+            count = (() @trusted inout => cast(typeof(count)) pureCalloc(1, CounterType.sizeof))();
         }
     }
 
@@ -64,7 +64,7 @@ struct __rcptr(T)
         delRef();
     }
 
-    void opAssign(ref __rcptr!T rhs)
+    void opAssign(__rcptr!T rhs)
     {
         if (rhs.count == count)
         {
@@ -79,7 +79,7 @@ struct __rcptr(T)
         addRef();
     }
 
-    this(ref __rcptr!T rhs)
+    this(scope ref __rcptr!T rhs)
     {
         ptr = rhs.ptr;
         count = rhs.count;
@@ -87,14 +87,30 @@ struct __rcptr(T)
         addRef();
     }
 
-    private void addRef()
+    this(scope ref inout __rcptr!T rhs) const
+    {
+        ptr = rhs.ptr;
+        count = rhs.count;
+
+        addRef();
+    }
+
+    this(scope ref immutable __rcptr!T rhs) immutable
+    {
+        ptr = rhs.ptr;
+        count = rhs.count;
+
+        addRef();
+    }
+
+    private void addRef() const
     {
         if (ptr is null)
         {
             return;
         }
 
-        atomicOp!"+="(*count, 1);
+        () @trusted { atomicOp!"+="(*(cast(shared(CounterType)*) count), 1); } ();
     }
 
     private void delRef()
@@ -113,7 +129,7 @@ struct __rcptr(T)
     }
 
     @system
-    T* get()
+    const(T*) get() const
     {
         return ptr;
     }
